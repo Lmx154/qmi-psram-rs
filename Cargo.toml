@@ -1,0 +1,21 @@
+[package]
+name = "qmi-psram"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Driver for the ISSI IS66WVS16M8FBLL 16 MiB QSPI PSRAM on RP2350 QMI chip select 1: a hardware-independent core, with a raw-register RP2350 back-end"
+
+[features]
+defmt = ["dep:defmt"]
+# The RP2350 back-end (raw QMI, XIP and GPIO registers). The application provides the
+# critical-section implementation, for example embassy-rp's `critical-section-impl`.
+rp2350 = ["dep:critical-section"]
+
+[dependencies]
+embedded-hal = "1.0"
+critical-section = { version = "1", optional = true }
+defmt = { version = "1.0.1", optional = true }
+
+[workspace]
+exclude = ["hil"]
