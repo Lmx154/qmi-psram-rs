@@ -40,7 +40,9 @@ All features are off by default. Without them the crate is hardware-independent 
 ## Measured on the MARV V2 Rev 1 board
 
 - All 16 MiB verified at 75 MHz.
-- 20.8 MiB/s write and 24.4 MiB/s read.
+- Through the uncached address the driver hands out: 21.0 MiB/s write and 23.7 MiB/s read (CPU copies, 1 MiB sequential). Through the cached address: 7.9 MiB/s write and 24.4 MiB/s read.
+- DMA reads and writes the memory window: 1.25 MiB copied each way with 0 mismatches, 31.2 MiB/s into the PSRAM and 25.9 MiB/s out of it (`psram_soak`).
+- Under load (`psram_soak`, a CPU spinner and an SRAM-to-SRAM DMA copy running): 17 passes of fill and verify of all 16 MiB in 62 s with a new pseudo-random pattern each pass, 0 mismatching words, including retention checks after a 3 s idle. A 30-minute run of the same program has not been made.
 
 ## Tests
 
@@ -52,6 +54,7 @@ On the board, through a debug probe (the script takes a lock, so runs never over
 
     tools/run.sh alive
     tools/run.sh psram_smoke
+    SOAK_SECONDS=60 tools/run.sh psram_soak 180
 
 Used here: Rust 1.99.1 with the `thumbv8m.main-none-eabihf` target, probe-rs 0.31.0, and a debug probe on the SWD header J10.
 
@@ -59,6 +62,7 @@ Used here: Rust 1.99.1 with the `thumbv8m.main-none-eabihf` target, probe-rs 0.3
 |---|---|
 | `alive` | tool chain, probe and board |
 | `psram_smoke` | chip ID, start from either chip state, all 16 MiB written and read back twice, retention, chip against window, sampling margin, throughput, re-map, chip-select and interrupts-off times; never programs the flash |
+| `psram_soak` | a control that the mismatch counter can count, DMA copies into and out of the memory window, then fill and verify of all 16 MiB with a new pattern every pass for `SOAK_SECONDS` (build-time, default 60) under a CPU and a DMA load; never programs the flash |
 
 The exit status is 0 when every check passed. Full logs are kept under `hil/logs/`.
 
@@ -69,7 +73,7 @@ Pins the test uses: QMI CS1 on GPIO0 (10k pull-up R35). Clock and SD0-3 are the 
 Version 0.1.0, as tested on the Rev 1 board.
 
 - Host: `cargo test` passes. Clippy, rustdoc and rustfmt are clean for the driver crate, and every public item is documented.
-- Board: `psram_smoke` exited 0 when last run.
+- Board: `psram_smoke` and `psram_soak` (60 s) exited 0 when last run.
 
 Not done for this device:
 
@@ -84,7 +88,7 @@ Cargo.toml       the driver crate (its own workspace root)
 src/             the driver
 hil/             the on-board test: one package, its own workspace; the only place that uses embassy-rp
   src/lib.rs     reports the verdict to the host
-  src/bin/       alive.rs and psram_smoke.rs
+  src/bin/       alive.rs, psram_smoke.rs and psram_soak.rs
   build.rs       links memory.x
 tools/run.sh     builds, flashes and runs one on-board test
 docs/device.md   register, timing and measured facts, pins, datasheet
