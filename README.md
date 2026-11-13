@@ -2,6 +2,10 @@
 
 Driver for the ISSI IS66WVS16M8FBLL 16 MiB PSRAM in socket U24 of the MARV V2 Rev 1 flight controller (RP2354B), on the RP2350's second QSPI chip select. The chip knowledge, the timing calculation and the start-up sequence are hardware-independent. The RP2350 back-end (feature `rp2350`) uses raw registers, so it needs no HAL and works under embassy-rp, another HAL or none. The driver turns the PSRAM into 16 MiB of ordinary memory.
 
+## Works with
+
+The core takes an `embedded-hal` 1.0 `DelayNs`. The RP2350 back-end, behind the `rp2350` feature, drives the QMI by registers and needs only `critical-section`, no HAL crate, so it works with `embassy-rp` or `rp235x-hal` alike.
+
 ## Usage
 
 ```rust

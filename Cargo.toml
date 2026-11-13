@@ -5,6 +5,11 @@ edition = "2024"
 publish = false
 license = "MIT"
 description = "Driver for the ISSI IS66WVS16M8FBLL 16 MiB QSPI PSRAM on RP2350 QMI chip select 1: a hardware-independent core, with a raw-register RP2350 back-end"
+repository = "https://github.com/Lmx154/qmi-psram-rs"
+readme = "README.md"
+keywords = ["embedded", "no-std", "driver", "psram", "rp2350"]
+categories = ["embedded", "no-std", "hardware-support"]
+rust-version = "1.99"
 
 [features]
 defmt = ["dep:defmt"]
