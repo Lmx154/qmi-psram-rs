@@ -1,10 +1,19 @@
 # qmi-psram
 
-Driver for the ISSI IS66WVS16M8FBLL 16 MiB PSRAM in socket U24 of the MARV V2 Rev 1 flight controller (RP2354B), on the RP2350's second QSPI chip select. The chip knowledge, the timing calculation and the start-up sequence are hardware-independent. The RP2350 back-end (feature `rp2350`) uses raw registers, so it needs no HAL and works under embassy-rp, another HAL or none. The driver turns the PSRAM into 16 MiB of ordinary memory.
+Driver for the ISSI IS66WVS16M8FBLL 16 MiB PSRAM in socket U24 of the MARV V2 Rev 1 flight controller (RP2354B), on the RP2350's second
+QSPI chip select. The chip knowledge, the timing calculation and the start-up sequence are hardware-independent. The RP2350 back-end
+(feature `rp2350`) uses raw registers, so it needs no HAL and works under embassy-rp, another HAL or none. The driver turns the PSRAM
+into 16 MiB of ordinary memory.
 
-## Works with
-
-The core takes an `embedded-hal` 1.0 `DelayNs`. The RP2350 back-end, behind the `rp2350` feature, drives the QMI by registers and needs only `critical-section`, no HAL crate, so it works with `embassy-rp` or `rp235x-hal` alike.
+```mermaid
+flowchart LR
+  app["application"] --> p["Psram::init, remap"]
+  p --> chip["chip.rs<br/>IDs, commands"]
+  p --> tim["timing.rs<br/>QMI window registers"]
+  p --> q{{"Qmi bus trait"}}
+  q --> rp["Rp2350Qmi<br/>raw registers"]
+  rp --> mem[("PSRAM at 0x15000000")]
+```
 
 ## Usage
 
@@ -18,87 +27,38 @@ psram.init(&mut embassy_time::Delay, embassy_rp::clocks::clk_sys_freq())?;
 let memory: &mut [u8] = psram.as_mut_slice();             // 16 MiB
 ```
 
-- `init` works whatever state the chip was left in and does not write to the memory. Call it before starting the second core: the flash the program runs from is unreachable for a few microseconds at a time while it talks to the chip (interrupts are off for about 8 us at a time, measured).
-- Programming the in-package flash resets the RP2350's set-up for the PSRAM. Call `remap()` afterwards; the contents are kept.
-- The memory is handed out at 0x15000000, the uncached address. The cached one (0x11000000) also works but writes through it are slower (7.9 against 20.8 MiB/s).
-- Compile this crate optimised in debug builds too (`[profile.dev.package.qmi-psram] opt-level = 3`). Unoptimised, its chip-select pulses last up to 13 us against the chip's 4 us limit.
-- The timing is computed from clk_sys: 75 MHz at 150 MHz, with one step of sampling margin measured on each side on this board.
+The application provides a `DelayNs` (embedded-hal 1.0), clk_sys in hertz and a `critical-section` implementation (for example
+embassy-rp's `critical-section-impl`). Dependencies: `embedded-hal` 1.0, optionally `critical-section` and `defmt`.
 
-## What the application provides
+## Docs
 
-- A `DelayNs` for `init`.
-- clk_sys in hertz.
-- A `critical-section` implementation, for example embassy-rp's `critical-section-impl`.
-
-Dependencies: `embedded-hal` 1.0 and, optionally, `critical-section` and `defmt`.
-
-## Cargo features
-
-All features are off by default. Without them the crate is hardware-independent `no_std` code.
-
-| Feature | What it adds |
+| Page | Contents |
 |---|---|
-| `defmt` | `defmt::Format` for the public data and error types |
-| `rp2350` | the raw-register RP2350 back-end; the application provides the `critical-section` implementation |
-
-## Measured on the MARV V2 Rev 1 board
-
-- All 16 MiB verified at 75 MHz.
-- Through the uncached address the driver hands out: 21.0 MiB/s write and 23.7 MiB/s read (CPU copies, 1 MiB sequential). Through the cached address: 7.9 MiB/s write and 24.4 MiB/s read.
-- DMA reads and writes the memory window: 1.25 MiB copied each way with 0 mismatches, 31.2 MiB/s into the PSRAM and 25.9 MiB/s out of it (`psram_soak`).
-- Under load (`psram_soak`, a CPU spinner and an SRAM-to-SRAM DMA copy running): 17 passes of fill and verify of all 16 MiB in 62 s with a new pseudo-random pattern each pass, 0 mismatching words, including retention checks after a 3 s idle. A 30-minute run of the same program has not been made.
-
-## Tests
-
-On the host:
-
-    cargo test
-
-On the board, through a debug probe (the script takes a lock, so runs never overlap):
-
-    tools/run.sh alive
-    tools/run.sh psram_smoke
-    SOAK_SECONDS=60 tools/run.sh psram_soak 180
-
-Used here: Rust 1.99.1 with the `thumbv8m.main-none-eabihf` target, probe-rs 0.31.0, and a debug probe on the SWD header J10.
-
-| Binary | What it checks |
-|---|---|
-| `alive` | tool chain, probe and board |
-| `psram_smoke` | chip ID, start from either chip state, all 16 MiB written and read back twice, retention, chip against window, sampling margin, throughput, re-map, chip-select and interrupts-off times; never programs the flash |
-| `psram_soak` | a control that the mismatch counter can count, DMA copies into and out of the memory window, then fill and verify of all 16 MiB with a new pattern every pass for `SOAK_SECONDS` (build-time, default 60) under a CPU and a DMA load; never programs the flash |
-
-The exit status is 0 when every check passed. Full logs are kept under `hil/logs/`.
-
-Pins the test uses: QMI CS1 on GPIO0 (10k pull-up R35). Clock and SD0-3 are the MCU's dedicated QSPI pins shared with the in-package flash.
+| [docs/device.md](docs/device.md) | Chip commands, ID, timing limits, socket, QMI registers, pins, datasheets |
+| [docs/driver.md](docs/driver.md) | Rules for correct use, chosen timing, features, reference throughput |
+| [docs/testing.md](docs/testing.md) | Host tests and the on-board programs |
 
 ## Status
 
-Version 0.1.0, as tested on the Rev 1 board.
+- Version 0.1.0. Host: `cargo test` passes; clippy, rustdoc and rustfmt are clean for the driver crate and every public item is documented.
+- On the board: `psram_smoke` and `psram_soak` (60 s) pass on the Rev 1 board; all 16 MiB verified at 75 MHz, DMA both ways verified.
+- Not done: an allocator on top of the memory; the other two parts the socket accepts (APS6404L, W25Q32); use while the second core runs
+  from flash; a soak longer than the 60 s default.
 
-- Host: `cargo test` passes. Clippy, rustdoc and rustfmt are clean for the driver crate, and every public item is documented.
-- Board: `psram_smoke` and `psram_soak` (60 s) exited 0 when last run.
+Used by: MARV-FC firmware.
 
-Not done for this device:
+## MARV project
 
-- An allocator on top of the memory.
-- The other two parts the socket accepts (APS6404L, W25Q32).
-- Use while the second core runs from flash.
+| Repository | Role |
+|---|---|
+| [MARV-FC](https://github.com/Lmx154/MARV-FC) | Flight-controller firmware for the MARV V2 board (RP2350B) |
+| [MARV-GCS](https://github.com/Lmx154/MARV-GCS) | Ground station (`marv-gcs`) and command line (`marv-cli`) |
+| [MARV-sim](https://github.com/Lmx154/MARV-sim) | Simulator that runs the firmware's flight code |
+| Sensors | [icm45686](https://github.com/Lmx154/icm45686-rs) · [lsm6dsk320x](https://github.com/Lmx154/lsm6dsk320x-rs) · [bmp581](https://github.com/Lmx154/bmp581-rs) · [bmm350](https://github.com/Lmx154/bmm350-rs) · [sam-m10q](https://github.com/Lmx154/sam-m10q) · [adc-battery](https://github.com/Lmx154/adc-battery) |
+| Board I/O | [pio-sdmmc](https://github.com/Lmx154/pio-sdmmc-rs) · **qmi-psram** · [ws2812c](https://github.com/Lmx154/ws2812c-rs) · [usb-cdc](https://github.com/Lmx154/usb-cdc) · [pio-uart](https://github.com/Lmx154/pio-uart) |
+| Motors and links | [dshot](https://github.com/Lmx154/dshot-rs) · [esc-passthrough](https://github.com/Lmx154/esc-passthrough) · [rc-port](https://github.com/Lmx154/rc-port) · [crsf-codec](https://github.com/Lmx154/crsf-codec) · [mavlink-device](https://github.com/Lmx154/mavlink-device) · [marv-dialect](https://github.com/Lmx154/marv-dialect) |
+| Other drivers | [lc76g](https://github.com/Lmx154/lc76g-rs) (Quectel LC76G GNSS) |
 
-## Layout
+## Licence
 
-```
-Cargo.toml       the driver crate (its own workspace root)
-src/             the driver
-hil/             the on-board test: one package, its own workspace; the only place that uses embassy-rp
-  src/lib.rs     reports the verdict to the host
-  src/bin/       alive.rs, psram_smoke.rs and psram_soak.rs
-  build.rs       links memory.x
-tools/run.sh     builds, flashes and runs one on-board test
-docs/device.md   register, timing and measured facts, pins, datasheet
-LICENSE          MIT
-```
-
-## License
-
-MIT, see `LICENSE`. The driver is written from the datasheet listed in `docs/device.md`.
+MIT, see `LICENSE`. The driver is written from the datasheet listed in [docs/device.md](docs/device.md).
